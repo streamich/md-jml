@@ -1,0 +1,20 @@
+{
+  "name": "md-jml",
+  "description": "Markdown to JsonML parser",
+  "version": "1.0.0",
+  "keywords": [
+    "md",
+    "markdown",
+    "JsonML",
+    "json-ml",
+    "html",
+    "javascript",
+    "generator",
+    "parser"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "http://github.com/streamich/md-jml"
+  },
+  "main": "index.js"
+}
