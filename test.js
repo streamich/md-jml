@@ -3,7 +3,7 @@ var parse = require('./index').parse;
 
 
 var md =
-    '# Hello <kbd>World</kbd>\n\n' +
+    '# [Hello](http://google.com) <kbd>World</kbd>\n\n' +
 
     ' - List *item* 1 \n' +
     ' - List item 2 \n\n' +
@@ -24,6 +24,13 @@ var md =
     '| ------------- |:-------------:| -----:|\n' +
     '| col 3 is      | right-aligned | $1600 |\n\n' +
     '';
+
+var md = '# Hello There 2' + '\n\n' +
+    'You are you?' + '\n\n' +
+    'console.log;' + '\n\n' +
+    'Test `this` [lololo](http://google.com).' + '\n\n' +
+    '';
+
 var out = parse(md);
 console.log(util.inspect(out, {depth: 10, colors: true}));
 

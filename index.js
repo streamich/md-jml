@@ -435,11 +435,13 @@ var InlineLexer = (function () {
                 link = (cap[2] || cap[1]).replace(/\s+/g, ' ');
                 link = this.links[link.toLowerCase()];
                 if (!link || !link.href) {
-                    out += cap[0].charAt(0);
+                    console.log('c', cap[0].charAt(0));
+                    out.push(cap[0].charAt(0));
                     src = cap[0].substring(1) + src;
                     continue;
                 }
                 this.inLink = true;
+                console.log(cap, link);
                 out.push(this.outputLink(cap, link));
                 this.inLink = false;
                 continue;
