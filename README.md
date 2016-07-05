@@ -40,7 +40,7 @@ console.log(jml);
 // ]
 ```
 
-You can use the resulting JsonML to generate HTML using the `jml-h` package:
+You can use the resulting JsonML to generate HTML using the [`jml-h`](http://www.npmjs.com/package/jml-h) package:
 
 ```js
 var jmlh = require('jml-h');
@@ -49,7 +49,7 @@ console.log(html);
 // <div><p>I am using <strong>markdown</strong>.</p></div>
 ```
 
-Also you can feed JsonML tree to Virtul DOM rendering engines like `React.js`, for example:
+Also you can feed JsonML tree to Virtual DOM rendering engines like `React.js`, for example:
 
 ```js
 var Component = React.createClass({
