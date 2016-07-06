@@ -7,6 +7,7 @@ function escape(html, encode) {
         .replace(/"/g, '&quot;')
         .replace(/'/g, '&#39;');
 }
+exports.escape = escape;
 function unescape(html) {
     return html.replace(/&([#\w]+);/g, function (_, n) {
         n = n.toLowerCase();
@@ -20,6 +21,15 @@ function unescape(html) {
         return '';
     });
 }
+exports.unescape = unescape;
+function clean(src) {
+    return src
+        .replace(/\r\n|\r/g, '\n')
+        .replace(/\t/g, '    ')
+        .replace(/\u00a0/g, ' ')
+        .replace(/\u2424/g, '\n');
+}
+exports.clean = clean;
 function replace(regex, opt) {
     regex = regex.source;
     opt = opt || '';
@@ -156,11 +166,7 @@ var BlockLexer = (function () {
         }
     }
     BlockLexer.prototype.lex = function (src) {
-        src = src
-            .replace(/\r\n|\r/g, '\n')
-            .replace(/\t/g, '    ')
-            .replace(/\u00a0/g, ' ')
-            .replace(/\u2424/g, '\n');
+        src = clean(src);
         this.token(src, true);
     };
     BlockLexer.prototype.token = function (src, top, bq, pos) {
@@ -200,13 +206,15 @@ var BlockLexer = (function () {
             if (cap = this.rules.heading.exec(src)) {
                 src = src.substring(cap[0].length);
                 var depth = cap[1].length;
+                var text = cap[3];
+                var offset = depth + cap[2].length;
                 this.tokens.push({
                     type: 3,
                     start: pos,
                     end: pos += cap[0].length,
-                    offset: depth + cap[2].length,
+                    offset: offset,
                     depth: depth,
-                    text: cap[3]
+                    text: text
                 });
                 continue;
             }
@@ -415,23 +423,21 @@ var InlineLexer = (function () {
         else if (this.options.pedantic)
             this.rules = inline.pedantic;
     }
-    InlineLexer.prototype.output = function (src, pos) {
+    InlineLexer.prototype.output = function (src, pos, cb) {
         var _this = this;
         if (pos === void 0) { pos = 0; }
         var out = [], link, text, href, cap, options = this.options;
         var loop = function () {
-            if (!src) {
-                return;
-            }
+            if (!src)
+                return cb(out);
             if (cap = _this.rules.escape.exec(src)) {
                 src = src.substring(cap[0].length);
                 pos += cap[0].length;
                 out.push(cap[1]);
-                continue;
+                return loop();
             }
             if (cap = _this.rules.autolink.exec(src)) {
                 src = src.substring(cap[0].length);
-                pos += cap[0].length;
                 if (cap[2] === '@') {
                     text = cap[1].charAt(6) === ':'
                         ? _this.mangle(cap[1].substring(7))
@@ -442,16 +448,23 @@ var InlineLexer = (function () {
                     text = escape(cap[1]);
                     href = text;
                 }
-                out.push(_this.ast.link(href, null, text));
-                continue;
+                var token = {
+                    start: pos,
+                    end: pos += cap[0].length
+                };
+                out.push(_this.ast.link(token, href, null, text));
+                return loop();
             }
             if (!_this.inLink && (cap = _this.rules.url.exec(src))) {
                 src = src.substring(cap[0].length);
-                pos += cap[0].length;
                 text = escape(cap[1]);
                 href = text;
-                out.push(_this.ast.link(href, null, text));
-                continue;
+                var token = {
+                    start: pos,
+                    end: pos += cap[0].length
+                };
+                out.push(_this.ast.link(token, href, null, text));
+                return loop();
             }
             if (cap = _this.rules.tag.exec(src)) {
                 if (!_this.inLink && /^<a /i.test(cap[0])) {
@@ -467,18 +480,22 @@ var InlineLexer = (function () {
                         ? options.sanitizer(cap[0])
                         : escape(cap[0]))
                     : cap[0]);
-                continue;
+                return loop();
             }
             if (cap = _this.rules.link.exec(src)) {
                 src = src.substring(cap[0].length);
-                pos += cap[0].length;
                 _this.inLink = true;
-                out.push(_this.outputLink(cap, {
+                _this.outputLink(cap, {
+                    start: pos,
+                    end: pos += cap[0].length,
                     href: cap[2],
                     title: cap[3]
-                }));
-                _this.inLink = false;
-                continue;
+                }, function (res) {
+                    out.push(res);
+                    _this.inLink = false;
+                    loop();
+                });
+                return;
             }
             if ((cap = _this.rules.reflink.exec(src))
                 || (cap = _this.rules.nolink.exec(src))) {
@@ -491,63 +508,95 @@ var InlineLexer = (function () {
                     var prepend = cap[0].substring(1);
                     src = prepend + src;
                     pos -= prepend.length;
-                    continue;
+                    return loop();
                 }
                 _this.inLink = true;
-                out.push(_this.outputLink(cap, link));
-                _this.inLink = false;
-                continue;
+                _this.outputLink(cap, link, function (res) {
+                    out.push(res);
+                    _this.inLink = false;
+                    loop();
+                });
+                return;
             }
             if (cap = _this.rules.strong.exec(src)) {
                 src = src.substring(cap[0].length);
-                pos += cap[0].length;
-                out.push(_this.ast.strong(_this.output(cap[2] || cap[1])));
-                continue;
+                _this.output(cap[2] || cap[1], pos, function (body) {
+                    var token = {
+                        start: pos,
+                        end: pos += cap[0].length,
+                        body: body
+                    };
+                    out.push(_this.ast.strong(token));
+                    loop();
+                });
+                return;
             }
             if (cap = _this.rules.em.exec(src)) {
                 src = src.substring(cap[0].length);
-                pos += cap[0].length;
-                out.push(_this.ast.em(_this.output(cap[2] || cap[1])));
-                continue;
+                _this.output(cap[2] || cap[1], pos, function (body) {
+                    var token = {
+                        start: pos,
+                        end: pos += cap[0].length,
+                        body: body
+                    };
+                    out.push(_this.ast.em(token));
+                    loop();
+                });
+                return;
             }
             if (cap = _this.rules.code.exec(src)) {
                 src = src.substring(cap[0].length);
-                out.push(_this.ast.codespan({
+                _this.ast.codespan({
                     start: pos,
                     end: pos += cap[0].length,
                     text: escape(cap[2], true)
-                }));
-                continue;
+                }, function (el) {
+                    out.push(el);
+                    loop();
+                });
+                return;
             }
             if (cap = _this.rules.br.exec(src)) {
                 src = src.substring(cap[0].length);
                 pos += cap[0].length;
                 out.push(_this.ast.br());
-                continue;
+                return loop();
             }
             if (cap = _this.rules.del.exec(src)) {
                 src = src.substring(cap[0].length);
-                pos += cap[0].length;
-                out.push(_this.ast.del(_this.output(cap[1])));
-                continue;
+                _this.output(cap[1], pos, function (body) {
+                    var token = {
+                        start: pos,
+                        end: pos += cap[0].length,
+                        body: body
+                    };
+                    out.push(_this.ast.del(token));
+                    loop();
+                });
+                return;
             }
             if (cap = _this.rules.text.exec(src)) {
                 src = src.substring(cap[0].length);
                 pos += cap[0].length;
                 out.push(_this.ast.text(escape(_this.smartypants(cap[0]))));
-                continue;
+                return loop();
             }
             if (src)
                 throw Error('Infinite loop: ' + src);
         };
         loop();
-        return out;
     };
-    InlineLexer.prototype.outputLink = function (cap, link) {
-        var href = escape(link.href), title = link.title ? escape(link.title) : null;
-        return cap[0].charAt(0) !== '!'
-            ? this.ast.link(href, title, this.output(cap[1]))
-            : this.ast.image(href, title, escape(cap[1]));
+    InlineLexer.prototype.outputLink = function (cap, token, cb) {
+        var _this = this;
+        var href = escape(token.href), title = token.title ? escape(token.title) : null;
+        if (cap[0].charAt(0) !== '!') {
+            this.output(cap[1], 0, function (res) {
+                cb(_this.ast.link(token, href, title, res));
+            });
+        }
+        else {
+            cb(this.ast.image(href, title, escape(cap[1])));
+        }
     };
     InlineLexer.prototype.smartypants = function (text) {
         if (!this.options.smartypants)
@@ -578,8 +627,12 @@ var InlineLexer = (function () {
 exports.InlineLexer = InlineLexer;
 var Ast = (function () {
     function Ast(options) {
-        this.options = options;
+        if (options === void 0) { options = {}; }
+        this.setOptions(options);
     }
+    Ast.prototype.setOptions = function (options) {
+        this.options = merge({}, this.options, options);
+    };
     Ast.prototype.addNodeMeta = function (token, attr) {
         if (this.options.attrMeta) {
             attr = attr || {};
@@ -587,13 +640,16 @@ var Ast = (function () {
         }
         return attr;
     };
+    Ast.prototype.simpleTag = function (tag, token) {
+        return [tag, this.addNodeMeta(token, null)].concat(token.body);
+    };
     Ast.prototype.code = function (token, cb) {
         var text = token.text, lang = token.lang, escaped = token.escaped;
         var attr = null;
         if (lang) {
             attr = (_a = {}, _a[this.options.attrClass] = 'lang-' + escape(lang, true), _a);
         }
-        cb(['pre', attr,
+        cb(['pre', this.addNodeMeta(token, attr),
             ['code', null,
                 escaped ? text : escape(text, true)
             ]
@@ -614,9 +670,9 @@ var Ast = (function () {
     Ast.prototype.hr = function () {
         return ['hr'];
     };
-    Ast.prototype.list = function (body, ordered) {
-        var type = ordered ? 'ol' : 'ul';
-        return [type, null].concat(body);
+    Ast.prototype.list = function (token, body) {
+        var type = token.ordered ? 'ol' : 'ul';
+        return [type, this.addNodeMeta(token, null)].concat(body);
     };
     Ast.prototype.listitem = function (body) {
         return ['li', null].concat(body);
@@ -640,11 +696,11 @@ var Ast = (function () {
             : null;
         return [type, attr].concat(content);
     };
-    Ast.prototype.strong = function (body) {
-        return ['strong', null].concat(body);
+    Ast.prototype.strong = function (token) {
+        return this.simpleTag('strong', token);
     };
-    Ast.prototype.em = function (body) {
-        return ['em', null].concat(body);
+    Ast.prototype.em = function (token) {
+        return this.simpleTag('em', token);
     };
     Ast.prototype.codespan = function (token, cb) {
         cb(['code', this.addNodeMeta(token, null), token.text]);
@@ -652,10 +708,10 @@ var Ast = (function () {
     Ast.prototype.br = function () {
         return ['br', null];
     };
-    Ast.prototype.del = function (body) {
-        return ['del', null].concat(body);
+    Ast.prototype.del = function (token) {
+        return this.simpleTag('del', token);
     };
-    Ast.prototype.link = function (href, title, text) {
+    Ast.prototype.link = function (token, href, title, text) {
         if (this.options.sanitize) {
             try {
                 var prot = decodeURIComponent(unescape(href))
@@ -672,7 +728,7 @@ var Ast = (function () {
         var attr = { href: href };
         if (title)
             attr.title = title;
-        return ['a', attr].concat(text);
+        return ['a', this.addNodeMeta(token, attr)].concat(text);
     };
     Ast.prototype.image = function (href, title, text) {
         var attr = { src: href, alt: text };
@@ -691,7 +747,13 @@ var Parser = (function () {
         if (options === void 0) { options = {}; }
         this.token = null;
         this.options = merge({}, exports.defaults, options);
-        this.ast = this.options.ast = this.options.ast || new Ast(this.options);
+        if (this.options.ast) {
+            this.ast = this.options.ast;
+            this.ast.setOptions(this.options);
+        }
+        else {
+            this.ast = this.options.ast = new Ast(this.options);
+        }
     }
     Parser.prototype.parse = function (blexer, done) {
         var _this = this;
@@ -723,7 +785,7 @@ var Parser = (function () {
         var pos = token.start;
         while (this.peek().type === 15)
             text += '\n' + this.next().text;
-        cb(this.inline.output(text, pos));
+        this.inline.output(text, pos, cb);
     };
     Parser.prototype.tok = function (cb) {
         var _this = this;
@@ -731,35 +793,65 @@ var Parser = (function () {
         switch (token.type) {
             case 1: return cb(null);
             case 2: return cb(ast.hr());
-            case 0:
-                return cb(ast.paragraph(token, inline.output(token.text, token.start)));
+            case 0: {
+                inline.output(token.text, token.start, function (res) {
+                    cb(ast.paragraph(token, res));
+                });
+                return;
+            }
             case 15: {
-                return this.parseText(function (text) {
+                this.parseText(function (text) {
                     cb(ast.paragraph(token, text));
                 });
+                return;
             }
-            case 3:
-                return cb(ast.heading(token, inline.output(token.text, token.start + token.offset)));
+            case 3: {
+                inline.output(token.text, token.start + token.offset, function (res) {
+                    cb(ast.heading(token, res));
+                });
+                return;
+            }
             case 4: {
                 return ast.code(token, cb);
             }
             case 5: {
                 var header = [], body = [], i, row, cell, flags, j;
                 cell = [];
-                for (i = 0; i < token.header.length; i++) {
-                    flags = { header: true, align: token.align[i] };
-                    cell.push(ast.tablecell(this.inline.output(token.header[i]), { header: true, align: token.align[i] }));
-                }
-                header.push(ast.tablerow(cell));
-                for (i = 0; i < token.cells.length; i++) {
-                    row = token.cells[i];
-                    cell = [];
-                    for (j = 0; j < row.length; j++) {
-                        cell.push(ast.tablecell(this.inline.output(row[j]), { header: false, align: token.align[j] }));
+                var loop_1 = function (i) {
+                    if (i >= token.header.length) {
+                        header.push(ast.tablerow(cell));
+                        var loop_2 = function (i) {
+                            if (i >= token.cells.length) {
+                                cb(ast.table(header, body));
+                                return;
+                            }
+                            row = token.cells[i];
+                            cell = [];
+                            var loop_3 = function (j) {
+                                if (j >= row.length) {
+                                    body.push(ast.tablerow(cell));
+                                    loop_2(i + 1);
+                                    return;
+                                }
+                                _this.inline.output(row[j], 0, function (res) {
+                                    var el = ast.tablecell(res, { header: false, align: token.align[j] });
+                                    cell.push(el);
+                                    loop_3(j + 1);
+                                });
+                            };
+                            loop_3(0);
+                        };
+                        loop_2(0);
+                        return;
                     }
-                    body.push(ast.tablerow(cell));
-                }
-                return cb(ast.table(header, body));
+                    flags = { header: true, align: token.align[i] };
+                    inline.output(token.header[i], 0, function (res) {
+                        cell.push(ast.tablecell(res, { header: true, align: token.align[i] }));
+                        loop_1(i + 1);
+                    });
+                };
+                loop_1(0);
+                return;
             }
             case 6: {
                 var body = [];
@@ -785,7 +877,7 @@ var Parser = (function () {
                         });
                     }
                     else
-                        cb(ast.list(body, token.ordered));
+                        cb(ast.list(token, body));
                 };
                 return loop();
             }
@@ -827,10 +919,13 @@ var Parser = (function () {
                 return loop();
             }
             case 14: {
-                var html = !this.token.pre && !this.options.pedantic
-                    ? this.inline.output(this.token.text)
-                    : this.token.text;
-                return cb(ast.html(html));
+                if (!token.pre && !this.options.pedantic) {
+                    inline.output(this.token.text, 0, cb);
+                }
+                else {
+                    cb(token.text);
+                }
+                return;
             }
         }
     };

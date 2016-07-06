@@ -1,5 +1,6 @@
 var util = require('util');
 var parse = require('./index').parse;
+var lib = require("../jml-h/index");
 
 
 var md =
@@ -37,16 +38,37 @@ md = 'Text:\n\n' +
     ' - list\n\n' +
     '```js\n' +
     '    console.log(123);\n' +
-    '```\n';
+    '```\n\n' +
+    '';
+
+md = '# Title\n\n' +
+    'Text [link](#link), and `alert();` haha.\n\n' +
+    '    console.log(123);\n\n' +
+    ' - List 1\n' +
+    ' - List 2\n' +
+    '   - List 2.1\n\n' +
+    'Text *it* and **st** and __lol__ and ~~trololo~~.\n\n' +
+    'Image ![pic](#pic) nois.\n\n';
 
 
 console.log(md);
 parse(md, {}, function(out) {
+    console.log(lib.dom(out));
+    lib.traverse(out, function(node) {
+        if(node[1]) {
+            var attr = node[1] || {};
+            if(attr['data-md']) {
+                var pos = attr['data-md'].split(',');
+                attr.src = md.substring(pos[0], pos[1]);
+            }
+        }
+        return node;
+    });
     console.log(util.inspect(out, {depth: 10, colors: true}));
 });
 
 
 
-// var lib = require("../jml-h/index");
+
 // console.log(lib.dom(out));
 // console.log(parse('I am using __markdown__.'));
