@@ -759,7 +759,6 @@ var Parser = (function () {
         var _this = this;
         this.inline = new InlineLexer(blexer.links, this.options, this.ast);
         this.tokens = blexer.tokens.reverse();
-        console.log(this.tokens);
         var out = ['div', null];
         var loop = function () {
             if (_this.next()) {

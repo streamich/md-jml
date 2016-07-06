@@ -1043,7 +1043,7 @@ export class Parser {
         this.inline = new InlineLexer(blexer.links, this.options, this.ast);
         this.tokens = blexer.tokens.reverse();
 
-        console.log(this.tokens);
+        // console.log(this.tokens);
 
         var out = ['div', null];
         var loop = () => {
