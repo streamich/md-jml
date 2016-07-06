@@ -149,7 +149,7 @@ export namespace grm {
     block.gfm = merge({}, block.normal, {
         fences: /^ *(`{3,}|~{3,})[ \.]*(\S+)? *\n([\s\S]*?)\s*\1 *(?:\n+|$)/,
         paragraph: /^/,
-        heading: /^ *(#{1,6}) +([^\n]+?) *#* *(?:\n+|$)/
+        heading: /^ *(#{1,6})( +)([^\n]+?) *#* *(?:\n+|$)/
     });
 
     block.gfm.paragraph = replace(block.paragraph)
@@ -224,22 +224,22 @@ export namespace grm {
 
 // Token type
 const enum TTYPE {
-    PARAGRAPH,
-    SPACE,
-    HR,
-    HEADING,
-    CODE,
-    TABLE,
-    BLOCKQUOTE_START,
-    BLOCKQUOTE_END,
-    LIST_START,
-    LIST_END,
-    LIST_ITEM_START,
-    LIST_ITEM_END,
-    LOOSE_ITEM_START,
-    LOOSE_ITEM_END,
-    HTML,
-    TEXT,
+    PARAGRAPH           = 0,
+    SPACE               = 1,
+    HR                  = 2,
+    HEADING             = 3,
+    CODE                = 4,
+    TABLE               = 5,
+    BLOCKQUOTE_START    = 6,
+    BLOCKQUOTE_END      = 7,
+    LIST_START          = 8,
+    LIST_END            = 9,
+    LIST_ITEM_START     = 10,
+    LIST_ITEM_END       = 11,
+    LOOSE_ITEM_START    = 12,
+    LOOSE_ITEM_END      = 13,
+    HTML                = 14,
+    TEXT                = 15,
 }
 
 
@@ -253,7 +253,9 @@ export interface IOptions {
     mangle?: boolean,
     smartLists?: boolean,
     smartypants?: boolean,
-    ast?: Ast;
+    ast?: Ast,
+    attrClass: string,
+    attrMeta: string,
 }
 
 export var defaults = {
@@ -266,12 +268,34 @@ export var defaults = {
     mangle: true,
     smartLists: false,
     smartypants: false,
+    attrClass: 'class',
+    attrMeta: 'data-md',
 };
+
+
+export interface IToken {
+    type?: TTYPE;
+    start?: number;     // Start position of the token
+    end?: number;       // End position of the token
+
+    // Offset where the actual text content of the token start that is fed to `InlineLexer`
+    // For example:
+    //
+    // # Title
+    //
+    // Would have offset of 2: "# "
+    offset?: number;
+
+    depth?: number;
+    text?: string;
+    lang?: string;
+    ordered?: boolean;
+}
 
 
 export class BlockLexer {
 
-    tokens: any = [];
+    tokens: IToken[] = [];
 
     links: any = {};
 
@@ -296,29 +320,31 @@ export class BlockLexer {
             .replace(/\t/g, '    ')
             .replace(/\u00a0/g, ' ')
             .replace(/\u2424/g, '\n');
-
         this.token(src, true);
     }
 
-    token(src, top, bq?) {
+    token(src, top, bq?, pos = 0) {
         var src = src.replace(/^ +$/gm, ''), next, loose, cap, bull, b, item, space, i, l,
             rules = this.rules, tokens = this.tokens;
         while (src) {
             // newline
             if (cap = rules.newline.exec(src)) {
                 src = src.substring(cap[0].length);
+                pos += cap[0].length;
                 if (cap[0].length > 1) tokens.push({type: TTYPE.SPACE});
             }
 
             // code
             if (cap = rules.code.exec(src)) {
                 src = src.substring(cap[0].length);
-                cap = cap[0].replace(/^ {4}/gm, '');
+                var text = cap[0].replace(/^ {4}/gm, '');
                 this.tokens.push({
                     type: TTYPE.CODE,
+                    start: pos,
+                    end: pos += cap[0].length,
                     text: !this.options.pedantic
-                        ? cap.replace(/\n+$/, '')
-                        : cap
+                        ? text.replace(/\n+$/, '')
+                        : text
                 });
                 continue;
             }
@@ -328,8 +354,10 @@ export class BlockLexer {
                 src = src.substring(cap[0].length);
                 this.tokens.push({
                     type: TTYPE.CODE,
+                    start: pos,
+                    end: pos += cap[0].length,
                     lang: cap[2],
-                    text: cap[3] || ''
+                    text: cap[3] || '',
                 });
                 continue;
             }
@@ -337,10 +365,14 @@ export class BlockLexer {
             // heading
             if (cap = this.rules.heading.exec(src)) {
                 src = src.substring(cap[0].length);
+                var depth = cap[1].length;
                 this.tokens.push({
                     type: TTYPE.HEADING,
-                    depth: cap[1].length,
-                    text: cap[2]
+                    start: pos,
+                    end: pos += cap[0].length,
+                    offset: depth + cap[2].length,
+                    depth: depth,
+                    text: cap[3],
                 });
                 continue;
             }
@@ -351,6 +383,8 @@ export class BlockLexer {
 
                 item = {
                     type: TTYPE.TABLE,
+                    start: pos,
+                    end: pos += cap[0].length,
                     header: cap[1].replace(/^ *| *\| *$/g, '').split(/ *\| */),
                     align: cap[2].replace(/^ *|\| *$/g, '').split(/ *\| */),
                     cells: cap[3].replace(/\n$/, '').split('\n')
@@ -381,6 +415,8 @@ export class BlockLexer {
                 src = src.substring(cap[0].length);
                 this.tokens.push({
                     type: TTYPE.HEADING,
+                    start: pos,
+                    end: pos += cap[0].length,
                     depth: cap[2] === '=' ? 1 : 2,
                     text: cap[1]
                 });
@@ -390,7 +426,11 @@ export class BlockLexer {
             // hr
             if (cap = this.rules.hr.exec(src)) {
                 src = src.substring(cap[0].length);
-                this.tokens.push({type: TTYPE.HR});
+                this.tokens.push({
+                    type: TTYPE.HR,
+                    start: pos,
+                    end: pos += cap[0].length,
+                });
                 continue;
             }
 
@@ -405,7 +445,11 @@ export class BlockLexer {
                 // how markdown.pl works.
                 this.token(cap, top, true);
 
-                this.tokens.push({type: TTYPE.BLOCKQUOTE_END});
+                this.tokens.push({
+                    type: TTYPE.BLOCKQUOTE_END,
+                    start: pos,
+                    end: pos += cap[0].length,
+                });
                 continue;
             }
 
@@ -416,6 +460,8 @@ export class BlockLexer {
 
                 this.tokens.push({
                     type: TTYPE.LIST_START,
+                    start: pos,
+                    end: pos += cap[0].length,
                     ordered: bull.length > 1
                 });
 
@@ -448,7 +494,9 @@ export class BlockLexer {
                     if (this.options.smartLists && i !== l - 1) {
                         b = grm.block.bullet.exec(cap[i + 1])[0];
                         if (bull !== b && !(bull.length > 1 && b.length > 1)) {
-                            src = cap.slice(i + 1).join('\n') + src;
+                            var prepend = cap.slice(i + 1).join('\n');
+                            src = prepend + src;
+                            pos -= prepend.length;
                             i = l - 1;
                         }
                     }
@@ -462,12 +510,16 @@ export class BlockLexer {
                         if (!loose) loose = next;
                     }
 
-                    this.tokens.push({type: loose ? TTYPE.LOOSE_ITEM_START : TTYPE.LIST_ITEM_START});
+                    this.tokens.push({type: loose
+                        ? TTYPE.LOOSE_ITEM_START
+                        : TTYPE.LIST_ITEM_START});
 
                     // Recurse.
                     this.token(item, false, bq);
 
-                    this.tokens.push({type: TTYPE.LIST_ITEM_END});
+                    this.tokens.push({type: loose
+                        ? TTYPE.LOOSE_ITEM_END
+                        : TTYPE.LIST_ITEM_END});
                 }
 
                 this.tokens.push({type: TTYPE.LIST_END});
@@ -481,6 +533,8 @@ export class BlockLexer {
                     type: this.options.sanitize
                         ? TTYPE.PARAGRAPH
                         : TTYPE.HTML,
+                    start: pos,
+                    end: pos += cap[0].length,
                     pre: !this.options.sanitizer && (cap[1] === 'pre' || cap[1] === 'script' || cap[1] === 'style'),
                     text: cap[0],
                 });
@@ -490,6 +544,7 @@ export class BlockLexer {
             // def
             if ((!bq && top) && (cap = this.rules.def.exec(src))) {
                 src = src.substring(cap[0].length);
+                pos += cap[0].length;
                 this.links[cap[1].toLowerCase()] = {href: cap[2], title: cap[3]};
                 continue;
             }
@@ -500,6 +555,8 @@ export class BlockLexer {
 
                 item = {
                     type: TTYPE.TABLE,
+                    start: pos,
+                    end: pos += cap[0].length,
                     header: cap[1].replace(/^ *| *\| *$/g, '').split(/ *\| */),
                     align: cap[2].replace(/^ *|\| *$/g, '').split(/ *\| */),
                     cells: cap[3].replace(/(?: *\| *)?\n$/, '').split('\n')
@@ -530,6 +587,8 @@ export class BlockLexer {
                 src = src.substring(cap[0].length);
                 this.tokens.push({
                     type: TTYPE.PARAGRAPH,
+                    start: pos,
+                    end: pos += cap[0].length,
                     text: cap[1].charAt(cap[1].length - 1) === '\n'
                         ? cap[1].slice(0, -1)
                         : cap[1]
@@ -543,6 +602,8 @@ export class BlockLexer {
                 src = src.substring(cap[0].length);
                 this.tokens.push({
                     type: TTYPE.TEXT,
+                    start: pos,
+                    end: pos += cap[0].length,
                     text: cap[0]
                 });
                 continue;
@@ -579,13 +640,24 @@ export class InlineLexer {
             this.rules = inline.pedantic;
     }
 
-    output(src) {
+    /**
+     * @param src
+     * @param pos Offset of this inline chunk in global Markdown string.
+     * @returns {Array}
+     */
+    output(src, pos = 0) {
         var out = [], link, text, href, cap, options = this.options;
 
-        while (src) {
+        var loop = () => {
+            if(!src) {
+
+                return;
+            }
+
             // escape
             if (cap = this.rules.escape.exec(src)) {
                 src = src.substring(cap[0].length);
+                pos += cap[0].length;
                 out.push(cap[1]);
                 continue;
             }
@@ -593,6 +665,7 @@ export class InlineLexer {
             // autolink
             if (cap = this.rules.autolink.exec(src)) {
                 src = src.substring(cap[0].length);
+                pos += cap[0].length;
                 if (cap[2] === '@') {
                     text = cap[1].charAt(6) === ':'
                         ? this.mangle(cap[1].substring(7))
@@ -609,6 +682,7 @@ export class InlineLexer {
             // url (gfm)
             if (!this.inLink && (cap = this.rules.url.exec(src))) {
                 src = src.substring(cap[0].length);
+                pos += cap[0].length;
                 text = escape(cap[1]);
                 href = text;
                 out.push(this.ast.link(href, null, text));
@@ -623,17 +697,19 @@ export class InlineLexer {
                     this.inLink = false;
                 }
                 src = src.substring(cap[0].length);
+                pos += cap[0].length;
                 out.push(options.sanitize
-                        ? (options.sanitizer
-                            ? options.sanitizer(cap[0])
-                            : escape(cap[0]))
-                        : cap[0]);
+                    ? (options.sanitizer
+                    ? options.sanitizer(cap[0])
+                    : escape(cap[0]))
+                    : cap[0]);
                 continue;
             }
 
             // link
             if (cap = this.rules.link.exec(src)) {
                 src = src.substring(cap[0].length);
+                pos += cap[0].length;
                 this.inLink = true;
                 out.push(this.outputLink(cap, {
                     href: cap[2],
@@ -647,16 +723,17 @@ export class InlineLexer {
             if ((cap = this.rules.reflink.exec(src))
                 || (cap = this.rules.nolink.exec(src))) {
                 src = src.substring(cap[0].length);
+                pos += cap[0].length;
                 link = (cap[2] || cap[1]).replace(/\s+/g, ' ');
                 link = this.links[link.toLowerCase()];
                 if (!link || !link.href) {
-                    console.log('c', cap[0].charAt(0));
                     out.push(cap[0].charAt(0));
-                    src = cap[0].substring(1) + src;
+                    var prepend = cap[0].substring(1);
+                    src = prepend + src;
+                    pos -= prepend.length;
                     continue;
                 }
                 this.inLink = true;
-                console.log(cap, link);
                 out.push(this.outputLink(cap, link));
                 this.inLink = false;
                 continue;
@@ -665,6 +742,7 @@ export class InlineLexer {
             // strong
             if (cap = this.rules.strong.exec(src)) {
                 src = src.substring(cap[0].length);
+                pos += cap[0].length;
                 out.push(this.ast.strong(this.output(cap[2] || cap[1])));
                 continue;
             }
@@ -672,6 +750,7 @@ export class InlineLexer {
             // em
             if (cap = this.rules.em.exec(src)) {
                 src = src.substring(cap[0].length);
+                pos += cap[0].length;
                 out.push(this.ast.em(this.output(cap[2] || cap[1])));
                 continue;
             }
@@ -679,13 +758,18 @@ export class InlineLexer {
             // code
             if (cap = this.rules.code.exec(src)) {
                 src = src.substring(cap[0].length);
-                out.push(this.ast.codespan(escape(cap[2], true)));
+                out.push(this.ast.codespan({
+                    start: pos,
+                    end: pos += cap[0].length,
+                    text: escape(cap[2], true),
+                }));
                 continue;
             }
 
             // br
             if (cap = this.rules.br.exec(src)) {
                 src = src.substring(cap[0].length);
+                pos += cap[0].length;
                 out.push(this.ast.br());
                 continue;
             }
@@ -693,6 +777,7 @@ export class InlineLexer {
             // del (gfm)
             if (cap = this.rules.del.exec(src)) {
                 src = src.substring(cap[0].length);
+                pos += cap[0].length;
                 out.push(this.ast.del(this.output(cap[1])));
                 continue;
             }
@@ -700,12 +785,14 @@ export class InlineLexer {
             // text
             if (cap = this.rules.text.exec(src)) {
                 src = src.substring(cap[0].length);
+                pos += cap[0].length;
                 out.push(this.ast.text(escape(this.smartypants(cap[0]))));
                 continue;
             }
 
             if (src) throw Error('Infinite loop: ' + src);
-        }
+        };
+        loop();
 
         return out;
     }
@@ -747,22 +834,31 @@ export class InlineLexer {
 export class Ast {
     options: IOptions;
 
-    constructor(options = {}) {
+    constructor(options) {
         this.options = options;
     }
 
-    code(code, lang, escaped) {
-        if (!lang) {
-            return ['pre',
-                ['code', (escaped ? code : escape(code, true))]
-            ];
+    addNodeMeta(token, attr) {
+        if(this.options.attrMeta) {
+            attr = attr || {};
+            attr[this.options.attrMeta] = token.start + ',' + token.end;
         }
+        return attr;
+    }
 
-        return ['pre',
-            ['code', {'class': 'lang-' + escape(lang, true)},
-                (escaped ? code : escape(code, true)) + '\n'
+    code(token, cb) {
+        var {text, lang, escaped} = token;
+        var attr = null;
+        if(lang) {
+            attr = {[this.options.attrClass]: 'lang-' + escape(lang, true)};
+        }
+        cb(
+            ['pre', attr,
+                ['code', null,
+                    escaped ? text : escape(text, true)
+                ]
             ]
-        ];
+        );
     }
 
     blockquote(body) {
@@ -770,12 +866,13 @@ export class Ast {
     }
 
     html(html) {
-        return 'html:' + html;
+        return html;
     }
 
-    heading(text, level, raw) {
-        var attr = {id: 'header-' + raw.toLowerCase().replace(/[^\w]+/g, '-')};
-        return ['h' + level, attr, ...text];
+    heading(token: IToken, body) {
+        var attr = {id: 'header-' + token.text.toLowerCase().replace(/[^\w]+/g, '-')};
+        attr = this.addNodeMeta(token, attr);
+        return ['h' + token.depth, attr, ...body];
     }
 
     hr() {
@@ -784,15 +881,15 @@ export class Ast {
 
     list(body, ordered) {
         var type = ordered ? 'ol' : 'ul';
-        return [type].concat(body);
+        return [type, null].concat(body);
     }
 
     listitem(body) {
         return ['li', null, ...body];
     }
 
-    paragraph(body) {
-        return ['p', null, ...body];
+    paragraph(token, body) {
+        return ['p', this.addNodeMeta(token, null), ...body];
     }
 
     table(header, body) {
@@ -824,8 +921,8 @@ export class Ast {
         return ['em', null, ...body];
     }
 
-    codespan(body) {
-        return ['code', null, ...body];
+    codespan(token, cb) {
+        cb(['code', this.addNodeMeta(token, null), token.text]);
     }
 
     br() {
@@ -868,13 +965,13 @@ export class Ast {
 
 export class Parser {
 
-    tokens = [];
+    tokens;
 
     token = null;
 
     options: IOptions;
 
-    ast;
+    ast: Ast;
 
     inline;
 
@@ -884,18 +981,29 @@ export class Parser {
     }
 
     // Parse Loop
-    parse(blexer: BlockLexer) {
+    parse(blexer: BlockLexer, done) {
         this.inline = new InlineLexer(blexer.links, this.options, this.ast);
         this.tokens = blexer.tokens.reverse();
 
-        var out = ['div'];
-        while (this.next()) out.push(this.tok());
-        return out;
+        console.log(this.tokens);
+
+        var out = ['div', null];
+        var loop = () => {
+            if(this.next()) {
+                this.tok((el) => {
+                    out.push(el);
+                    loop();
+                });
+            } else done(out);
+        };
+        loop();
     }
 
     // Next Token
     next() {
         return this.token = this.tokens.pop();
+        // console.log(this.token);
+        // return this.token;
     }
 
     // Preview Next Token
@@ -904,21 +1012,34 @@ export class Parser {
     }
 
     // Parse Text Tokens
-    parseText() {
-        var body = this.token.text;
+    parseText(cb) {
+        var token = this.token;
+        var text = token.text;
+        var pos = token.start;
+
         while (this.peek().type === TTYPE.TEXT)
-            body += '\n' + this.next().text;
-        return this.inline.output(body);
+            text += '\n' + this.next().text;
+        cb(this.inline.output(text, pos));
     }
 
     // Parse Current Token
-    tok() {
+    tok(cb) {
         var token = this.token, ast = this.ast, inline = this.inline;
         switch(token.type) {
-            case TTYPE.SPACE:   return null;
-            case TTYPE.HR:      return ast.hr();
-            case TTYPE.HEADING: return ast.heading(inline.output(token.text), token.depth, token.text);
-            case TTYPE.CODE:    return ast.code(token.text, token.lang, token.escaped);
+            case TTYPE.SPACE:       return cb(null);
+            case TTYPE.HR:          return cb(ast.hr());
+            case TTYPE.PARAGRAPH:
+                return cb(ast.paragraph(token, inline.output(token.text, token.start)));
+            case TTYPE.TEXT: {
+                return this.parseText((text) => {
+                    cb(ast.paragraph(token, text))
+                });
+            }
+            case TTYPE.HEADING:
+                return cb(ast.heading(token, inline.output(token.text, token.start + token.offset)));
+            case TTYPE.CODE: {
+                return ast.code(token, cb);
+            }
             case TTYPE.TABLE: {
                 var header = [], body = [], i, row, cell, flags, j;
 
@@ -943,51 +1064,80 @@ export class Parser {
 
                     body.push(ast.tablerow(cell));
                 }
-                return ast.table(header, body);
+                return cb(ast.table(header, body));
             }
             case TTYPE.BLOCKQUOTE_START: {
                 var body = [];
-                while (this.next().type !== TTYPE.BLOCKQUOTE_END) body.push(this.tok());
-                return ast.blockquote(body);
+                var loop = () => {
+                    if(this.next().type !== TTYPE.BLOCKQUOTE_END) {
+                        this.tok((el) => {
+                            body.push(el);
+                            loop();
+                        });
+                    } else cb(ast.blockquote(body));
+                };
+                return loop();
             }
             case TTYPE.LIST_START: {
-                var body = [], ordered = token.ordered;
-                while (this.next().type !== TTYPE.LIST_END) body.push(this.tok());
-                return ast.list(body, ordered);
+                var body = [];
+                var loop = () => {
+                    if(this.next().type !== TTYPE.LIST_END) {
+                        this.tok((el) => {
+                            body.push(el);
+                            loop();
+                        });
+                    } else cb(ast.list(body, token.ordered));
+                };
+                return loop();
             }
             case TTYPE.LIST_ITEM_START: {
                 var body = [];
-                while (this.next().type !== TTYPE.LIST_ITEM_END)
-                    if(this.token.type === TTYPE.TEXT) body = body.concat(this.parseText());
-                    else body.push(this.tok());
-                return ast.listitem(body);
+                var loop = () => {
+                    var next = this.next();
+                    if(next.type !== TTYPE.LIST_ITEM_END) {
+                        if(next.type === TTYPE.TEXT) {
+                            this.parseText((list) => {
+                                body = body.concat(list);
+                                loop();
+                            });
+                        } else {
+                            this.tok((el) => {
+                                body.push(el);
+                                loop();
+                            });
+                        }
+
+                    } else cb(ast.listitem(body));
+                };
+                return loop();
             }
             case TTYPE.LOOSE_ITEM_START: {
                 var body = [];
-                while (this.next().type !== TTYPE.LOOSE_ITEM_END) body.push(this.tok());
-                return ast.listitem(body);
+                var loop = () => {
+                    if(this.next().type !== TTYPE.LOOSE_ITEM_END) {
+                        this.tok((el) => {
+                            body.push(el);
+                            loop();
+                        });
+                    } else cb(ast.listitem(body));
+                };
+                return loop();
             }
             case TTYPE.HTML: {
                 var html = !this.token.pre && !this.options.pedantic
                     ? this.inline.output(this.token.text)
                     : this.token.text;
-                return ast.html(html);
-            }
-            case TTYPE.PARAGRAPH: {
-                return ast.paragraph(inline.output(this.token.text));
-            }
-            case TTYPE.TEXT: {
-                return ast.paragraph(this.parseText());
+                return cb(ast.html(html));
             }
         }
     }
 }
 
 
-export function parse(src, opt = {}) {
+export function parse(src, opt = {}, done) {
     if (opt) opt = merge({}, defaults, opt);
     var lexer = new BlockLexer(opt);
     lexer.lex(src);
     var parser = new Parser(opt);
-    return parser.parse(lexer);
+    return parser.parse(lexer, done);
 }

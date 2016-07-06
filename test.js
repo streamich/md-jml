@@ -25,18 +25,28 @@ var md =
     '| col 3 is      | right-aligned | $1600 |\n\n' +
     '';
 
-var md = '# Hello There 2' + '\n\n' +
+md = '# Hello `There` 2' + '\n\n' +
     'You are you?' + '\n\n' +
-    'console.log;' + '\n\n' +
+    ' - list;' + '\n\n' +
+    'asdf' + '\n\n' +
+    '    console.log;' + '\n\n' +
     'Test `this` [lololo](http://google.com).' + '\n\n' +
-    '';
+    'asdfafd';
 
-var out = parse(md);
-console.log(util.inspect(out, {depth: 10, colors: true}));
+md = 'Text:\n\n' +
+    ' - list\n\n' +
+    '```js\n' +
+    '    console.log(123);\n' +
+    '```\n';
 
 
-var lib = require("../jml-h/index");
-console.log(lib.dom(out));
+console.log(md);
+parse(md, {}, function(out) {
+    console.log(util.inspect(out, {depth: 10, colors: true}));
+});
 
 
-console.log(parse('I am using __markdown__.'));
+
+// var lib = require("../jml-h/index");
+// console.log(lib.dom(out));
+// console.log(parse('I am using __markdown__.'));

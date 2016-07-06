@@ -9,6 +9,7 @@ Differences:
  - Does not support highlighting functionality of `marked`, as it is better
  to do it by extending the `Ast` constructor function (a.k.a. `Renderer` in `marked`) or
  by traversing the resulting JsonML tree.
+ - Asynchronous AST generation.
  - Not tested.
  
 Unlike other Markdown parsers this module returns a JsonML AST of the resulting
