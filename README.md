@@ -30,8 +30,10 @@ However, `md-jml` returns a JsonML tree:
 
 ```js
 var md = require('md-jml');
-var jml = md.parse('I am using __markdown__.');
-console.log(jml);
+var jml = md.parse('I am using __markdown__.', {}, function(jml) {
+    console.log(jml);
+});
+
 // [ 'div',
 //     [ 'p', null,
 //         'I am using ',
@@ -48,15 +50,4 @@ var jmlh = require('jml-h');
 var html = jmlh.dom(jml);
 console.log(html);
 // <div><p>I am using <strong>markdown</strong>.</p></div>
-```
-
-Also you can feed JsonML tree to Virtual DOM rendering engines like `React.js`, for example:
-
-```js
-var Component = React.createClass({
-    render: function() {
-        var jml = md.parse('I am using __markdown__.');
-        return jmlh.dom(jml, React.createElement.bind(React));
-    }
-});
 ```

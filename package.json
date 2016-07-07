@@ -1,7 +1,7 @@
 {
   "name": "md-jml",
   "description": "Markdown to JsonML parser",
-  "version": "1.0.4",
+  "version": "2.0.0",
   "keywords": [
     "md",
     "markdown",
