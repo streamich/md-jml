@@ -30,7 +30,7 @@ However, `md-jml` returns a JsonML tree:
 
 ```js
 var md = require('md-jml');
-var jml = md.parse('I am using __markdown__.', {}, function(jml) {
+md.parse('I am using __markdown__.', {}, function(jml) {
     console.log(jml);
 });
 

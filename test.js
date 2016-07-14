@@ -50,23 +50,47 @@ md = '# Title\n\n' +
     'Text *it* and **st** and __lol__ and ~~trololo~~.\n\n' +
     'Image ![pic](#pic) nois.\n\n';
 
+md = '> quote\n\n' +
+    '> m`o`re';
 
-console.log(md);
-parse(md, {}, function(out) {
-    console.log(lib.dom(out));
-    lib.traverse(out, function(node) {
-        if(node[1]) {
-            var attr = node[1] || {};
-            if(attr['data-md']) {
-                var pos = attr['data-md'].split(',');
-                attr.src = md.substring(pos[0], pos[1]);
+md = ' - test `1`';
+
+md = ' - test 1\n' +
+    '  - test 1.1\n' +
+    '   - test 1.1.1\n' +
+    '   - test 1.1.2\n';
+    // '  - test 1.2\n' +
+    // '   - test 1.2.1\n';
+
+md = 'Hello ::smile:: *t::h::ere*.';
+
+md = ' - ::smile::';
+
+md = ' text ``key a`` more';
+
+md = 'Hi, :smasd asdf:!';
+
+// console.log(md);
+
+    parse(md, {}, function(out) {
+        console.log(lib.dom(out));
+        lib.traverse(out, function(node) {
+            if(node[1]) {
+                var attr = node[1] || {};
+                if(attr['data-pos']) {
+                    var pos = attr['data-pos'].split(',');
+                    attr.src = md.substring(pos[0], pos[1]);
+                }
             }
-        }
-        return node;
+            return node;
+        });
+        console.log(util.inspect(out, {depth: 10, colors: true}));
     });
-    console.log(util.inspect(out, {depth: 10, colors: true}));
-});
 
+md = 'Text long\n\n' +
+    ' - test `1` \n' +
+    ' - test 2';
+// parse(md);
 
 
 
